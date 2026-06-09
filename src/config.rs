@@ -39,6 +39,17 @@ pub fn nats_url() -> String {
     env_or("NATS_URL", "")
 }
 
+/// OTLP endpoint URL for trace export (e.g. http://jaeger:4317). Empty disables
+/// tracing, keeping observability optional.
+pub fn otlp_endpoint() -> String {
+    env_or("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+}
+
+/// Listen address for the Prometheus /metrics endpoint.
+pub fn metrics_addr() -> String {
+    format!("0.0.0.0:{}", env_or("METRICS_PORT", "9100"))
+}
+
 // ── v0.2 Security+ feature toggles (defaults keep current behavior) ──
 
 /// Block login for unverified users when true.
