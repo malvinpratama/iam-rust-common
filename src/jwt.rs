@@ -42,6 +42,11 @@ pub struct Claims {
     pub jti: String, // token id — used for access-token revocation
     pub iat: i64,
     pub exp: i64,
+    // Empty for a normal access token; "mfa" for the short-lived token issued
+    // between the password and TOTP steps of a 2FA login. An mfa token must
+    // never be accepted as a bearer/access token.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub purpose: String,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -98,6 +103,26 @@ impl JwtManager {
             jti: gen_jti(),
             iat: now,
             exp: now + self.access_ttl_secs,
+            purpose: String::new(),
+        };
+        let mut header = Header::new(Algorithm::RS256);
+        header.kid = Some(self.active_kid.clone());
+        encode(&header, &claims, &self.enc).map_err(|_| JwtError::Encode)
+    }
+
+    /// Sign a short-lived token proving the password step of a 2FA login passed.
+    /// It carries purpose="mfa" and no jti (not an access token); LoginTotp
+    /// exchanges it + a TOTP/recovery code for a real token pair.
+    pub fn issue_mfa(&self, user_id: &str, ttl_secs: i64) -> Result<String, JwtError> {
+        let now = Utc::now().timestamp();
+        let claims = Claims {
+            sub: user_id.to_string(),
+            email: String::new(),
+            iss: self.issuer.clone(),
+            jti: String::new(),
+            iat: now,
+            exp: now + ttl_secs,
+            purpose: "mfa".to_string(),
         };
         let mut header = Header::new(Algorithm::RS256);
         header.kid = Some(self.active_kid.clone());
