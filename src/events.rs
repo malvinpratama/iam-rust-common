@@ -13,10 +13,12 @@ pub const STREAM: &str = "IAM_EVENTS";
 pub const SUBJECT_PREFIX: &str = "iam.";
 pub const SUBJECT_USER_REGISTERED: &str = "iam.user.registered";
 pub const SUBJECT_USER_DELETED: &str = "iam.user.deleted";
+pub const SUBJECT_USER_RESTORED: &str = "iam.user.restored";
 
 /// Event type tags as stored in the auth outbox (subject = prefix + type).
 pub const TYPE_USER_REGISTERED: &str = "user.registered";
 pub const TYPE_USER_DELETED: &str = "user.deleted";
+pub const TYPE_USER_RESTORED: &str = "user.restored";
 
 /// Published after an identity is created; drives profile creation.
 #[derive(Debug, Serialize, Deserialize)]
@@ -26,9 +28,18 @@ pub struct UserRegistered {
     pub display_name: String,
 }
 
-/// Published after an identity is deleted; drives profile deletion.
+/// Published after an identity is deleted; drives profile deletion. Soft by
+/// default; `hard` requests permanent removal.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserDeleted {
+    pub user_id: String,
+    #[serde(default)]
+    pub hard: bool,
+}
+
+/// Published after a soft-deleted identity is restored; un-deletes the profile.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UserRestored {
     pub user_id: String,
 }
 
