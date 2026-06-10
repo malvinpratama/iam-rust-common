@@ -104,6 +104,33 @@ impl JwtManager {
         encode(&header, &claims, &self.enc).map_err(|_| JwtError::Encode)
     }
 
+    /// Sign an OIDC ID token (RS256) for the given subject/audience with an
+    /// optional nonce. `issuer` is the public OIDC issuer URL.
+    pub fn issue_id_token(
+        &self,
+        sub: &str,
+        email: &str,
+        audience: &str,
+        nonce: &str,
+        issuer: &str,
+    ) -> Result<String, JwtError> {
+        let now = Utc::now().timestamp();
+        let mut claims = serde_json::json!({
+            "iss": issuer,
+            "sub": sub,
+            "aud": audience,
+            "email": email,
+            "iat": now,
+            "exp": now + self.access_ttl_secs,
+        });
+        if !nonce.is_empty() {
+            claims["nonce"] = serde_json::Value::String(nonce.to_string());
+        }
+        let mut header = Header::new(Algorithm::RS256);
+        header.kid = Some(self.active_kid.clone());
+        encode(&header, &claims, &self.enc).map_err(|_| JwtError::Encode)
+    }
+
     pub fn parse(&self, token: &str) -> Result<Claims, JwtError> {
         let kid = decode_header(token)
             .map_err(|_| JwtError::Invalid)?
