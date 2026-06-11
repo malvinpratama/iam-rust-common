@@ -14,11 +14,15 @@ pub const SUBJECT_PREFIX: &str = "iam.";
 pub const SUBJECT_USER_REGISTERED: &str = "iam.user.registered";
 pub const SUBJECT_USER_DELETED: &str = "iam.user.deleted";
 pub const SUBJECT_USER_RESTORED: &str = "iam.user.restored";
+/// Compensation signal: the user service gave up creating a profile, so auth
+/// should roll back (soft-delete) the half-created identity.
+pub const SUBJECT_PROFILE_FAILED: &str = "iam.user.profile_failed";
 
 /// Event type tags as stored in the auth outbox (subject = prefix + type).
 pub const TYPE_USER_REGISTERED: &str = "user.registered";
 pub const TYPE_USER_DELETED: &str = "user.deleted";
 pub const TYPE_USER_RESTORED: &str = "user.restored";
+pub const TYPE_PROFILE_FAILED: &str = "user.profile_failed";
 
 /// Published after an identity is created; drives profile creation.
 #[derive(Debug, Serialize, Deserialize)]
@@ -41,6 +45,15 @@ pub struct UserDeleted {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserRestored {
     pub user_id: String,
+}
+
+/// Saga compensation event: the user service could not create the profile after
+/// exhausting retries. Auth consumes it and soft-deletes the orphaned identity.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProfileCreationFailed {
+    pub user_id: String,
+    #[serde(default)]
+    pub reason: String,
 }
 
 /// Connect to NATS and return a JetStream context (infinite reconnect).
