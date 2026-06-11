@@ -47,6 +47,12 @@ pub struct Claims {
     // never be accepted as a bearer/access token.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub purpose: String,
+    // M6: the tenant (and optional project) the token is bound to. Empty on the
+    // legacy/mfa path; a normal access token always carries a tenant.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub tenant_id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub project_id: String,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -94,7 +100,7 @@ impl JwtManager {
         self.access_ttl_secs
     }
 
-    pub fn issue(&self, user_id: &str, email: &str) -> Result<String, JwtError> {
+    pub fn issue(&self, user_id: &str, email: &str, tenant_id: &str, project_id: &str) -> Result<String, JwtError> {
         let now = Utc::now().timestamp();
         let claims = Claims {
             sub: user_id.to_string(),
@@ -104,6 +110,8 @@ impl JwtManager {
             iat: now,
             exp: now + self.access_ttl_secs,
             purpose: String::new(),
+            tenant_id: tenant_id.to_string(),
+            project_id: project_id.to_string(),
         };
         let mut header = Header::new(Algorithm::RS256);
         header.kid = Some(self.active_kid.clone());
@@ -123,6 +131,8 @@ impl JwtManager {
             iat: now,
             exp: now + ttl_secs,
             purpose: "mfa".to_string(),
+            tenant_id: String::new(),
+            project_id: String::new(),
         };
         let mut header = Header::new(Algorithm::RS256);
         header.kid = Some(self.active_kid.clone());
@@ -184,7 +194,7 @@ mod tests {
     #[test]
     fn issue_and_parse() {
         let m = mgr(60);
-        let tok = m.issue("user-123", "a@b.com").unwrap();
+        let tok = m.issue("user-123", "a@b.com", "", "").unwrap();
         let claims = m.parse(&tok).unwrap();
         assert_eq!(claims.sub, "user-123");
         assert_eq!(claims.email, "a@b.com");
@@ -193,14 +203,14 @@ mod tests {
     #[test]
     fn rejects_tampered() {
         let m = mgr(60);
-        let tok = m.issue("user-123", "a@b.com").unwrap();
+        let tok = m.issue("user-123", "a@b.com", "", "").unwrap();
         assert!(m.parse(&format!("{tok}x")).is_err());
     }
 
     #[test]
     fn rejects_expired() {
         let m = mgr(-3600);
-        let tok = m.issue("user-123", "a@b.com").unwrap();
+        let tok = m.issue("user-123", "a@b.com", "", "").unwrap();
         assert!(m.parse(&tok).is_err());
     }
 
@@ -208,7 +218,7 @@ mod tests {
     fn rejects_token_from_other_key() {
         let a = mgr(60);
         let b = mgr(60);
-        let tok = a.issue("user-123", "a@b.com").unwrap();
+        let tok = a.issue("user-123", "a@b.com", "", "").unwrap();
         assert!(b.parse(&tok).is_err());
     }
 }
