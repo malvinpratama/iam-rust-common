@@ -28,9 +28,18 @@ pub fn is_production() -> bool {
     matches!(env_or("APP_ENV", "development").as_str(), "production" | "prod")
 }
 
-/// Shared gateway→service token (empty disables enforcement; local dev).
+/// Shared gateway→service token. Empty does NOT disable enforcement on its own —
+/// internal auth is fail-closed (see `internal_auth_optional`).
 pub fn internal_token() -> String {
     env_or("INTERNAL_SERVICE_TOKEN", "")
+}
+
+/// Explicit opt-out to run internal services without the shared token (local dev
+/// / tests). Must be set deliberately; a missing token is otherwise fail-closed
+/// so a misconfigured deployment rejects every internal call instead of allowing
+/// all of them.
+pub fn internal_auth_optional() -> bool {
+    env_or("INTERNAL_AUTH_OPTIONAL", "") == "true"
 }
 
 /// NATS JetStream URL for async inter-service events. Empty disables the
