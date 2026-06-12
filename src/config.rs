@@ -81,20 +81,44 @@ pub fn audit_enabled() -> bool {
     env_or("AUDIT_ENABLED", "true") != "false"
 }
 
-/// Fail fast on insecure configuration in production.
+/// Substrings that betray a placeholder/demo/dev secret. The committed demo
+/// values (k8s-demo-…-rotate-me, app_secret, dev-…-change-me, ChangeMeAdmin-…)
+/// all contain one, so exact-matching the old defaults was not enough.
+const WEAK_SECRET_MARKERS: &[&str] = &[
+    "change-me", "changeme", "rotate-me", "k8s-demo", "demo-secret",
+    "dev-internal", "admin12345", "app_secret", "console-demo",
+];
+
+fn looks_weak(s: &str) -> bool {
+    let l = s.to_lowercase();
+    WEAK_SECRET_MARKERS.iter().any(|m| l.contains(m))
+}
+
+/// Fail fast on insecure configuration in production. Rejects not just the
+/// original defaults but any value carrying a placeholder marker, so a
+/// repo-committed demo secret cannot boot a production deployment.
 pub fn validate_security() -> Result<(), String> {
     if !is_production() {
         return Ok(());
     }
     let secret = env_or("JWT_SECRET", DEFAULT_JWT_SECRET);
-    if secret == DEFAULT_JWT_SECRET || secret.len() < 32 {
-        return Err("JWT_SECRET must be a strong value (>=32 bytes) in production".into());
+    if secret.len() < 32 || looks_weak(&secret) {
+        return Err("JWT_SECRET must be a strong, non-placeholder value (>=32 bytes) in production".into());
     }
-    if env_or("BOOTSTRAP_ADMIN_PASSWORD", "") == "admin12345" {
-        return Err("BOOTSTRAP_ADMIN_PASSWORD must not be the default in production".into());
+    let admin = env_or("BOOTSTRAP_ADMIN_PASSWORD", "");
+    if admin.is_empty() || looks_weak(&admin) {
+        return Err("BOOTSTRAP_ADMIN_PASSWORD must be set to a strong, non-placeholder value in production".into());
     }
-    if internal_token().is_empty() {
-        return Err("INTERNAL_SERVICE_TOKEN must be set in production".into());
+    let token = internal_token();
+    if token.is_empty() || looks_weak(&token) {
+        return Err("INTERNAL_SERVICE_TOKEN must be set to a strong, non-placeholder value in production".into());
+    }
+    // The DB password is embedded in the connection URL — reject placeholder creds.
+    for k in ["AUTH_DATABASE_URL", "USER_DATABASE_URL", "DATABASE_URL"] {
+        let v = env_or(k, "");
+        if !v.is_empty() && looks_weak(&v) {
+            return Err(format!("{k} must not use a placeholder database password in production"));
+        }
     }
     Ok(())
 }
