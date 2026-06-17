@@ -42,6 +42,11 @@ pub struct Claims {
     pub jti: String, // token id — used for access-token revocation
     pub iat: i64,
     pub exp: i64,
+    // "access" for a normal access token; empty on the mfa/legacy path. Gives an
+    // access token a positive type marker so an OIDC ID token (signed by the same
+    // key, sharing the issuer) can never be replayed on the access-token path.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub token_use: String,
     // Empty for a normal access token; "mfa" for the short-lived token issued
     // between the password and TOTP steps of a 2FA login. An mfa token must
     // never be accepted as a bearer/access token.
@@ -109,6 +114,7 @@ impl JwtManager {
             jti: gen_jti(),
             iat: now,
             exp: now + self.access_ttl_secs,
+            token_use: "access".to_string(),
             purpose: String::new(),
             tenant_id: tenant_id.to_string(),
             project_id: project_id.to_string(),
@@ -130,6 +136,7 @@ impl JwtManager {
             jti: String::new(),
             iat: now,
             exp: now + ttl_secs,
+            token_use: String::new(),
             purpose: "mfa".to_string(),
             tenant_id: String::new(),
             project_id: String::new(),
@@ -178,6 +185,25 @@ impl JwtManager {
             .map(|data| data.claims)
             .map_err(|_| JwtError::Invalid)
     }
+
+    /// Validate a token AND assert it is a bearer access token — not an MFA token
+    /// and not an OIDC ID token. Access tokens always carry a jti and (after this
+    /// change) token_use="access"; ID tokens carry neither. This makes the
+    /// rejection explicit/by-design rather than relying on `jti` being a required
+    /// field that an ID token happens to lack.
+    pub fn parse_access(&self, token: &str) -> Result<Claims, JwtError> {
+        let claims = self.parse(token)?;
+        if !claims.purpose.is_empty() {
+            return Err(JwtError::Invalid);
+        }
+        if claims.jti.is_empty() {
+            return Err(JwtError::Invalid);
+        }
+        if !claims.token_use.is_empty() && claims.token_use != "access" {
+            return Err(JwtError::Invalid);
+        }
+        Ok(claims)
+    }
 }
 
 #[cfg(test)]
@@ -220,5 +246,49 @@ mod tests {
         let b = mgr(60);
         let tok = a.issue("user-123", "a@b.com", "", "").unwrap();
         assert!(b.parse(&tok).is_err());
+    }
+
+    // An OIDC ID token shares the signing key and issuer with access tokens but
+    // carries no jti and no token_use="access"; parse_access must reject it so it
+    // can't be replayed as a bearer token (regression for the token-confusion gap
+    // that Go was exposed to).
+    #[test]
+    fn parse_access_rejects_id_token() {
+        let m = mgr(60);
+        // Issue with the manager's own issuer so the issuer check would pass —
+        // only the access-token type guard may reject it.
+        let id = m
+            .issue_id_token("user-123", "a@b.com", "some-client", "nonce-1", "iam-auth")
+            .unwrap();
+        assert!(m.parse_access(&id).is_err());
+    }
+
+    #[test]
+    fn parse_access_rejects_mfa() {
+        let m = mgr(60);
+        let t = m.issue_mfa("user-123", 60).unwrap();
+        assert!(m.parse_access(&t).is_err());
+    }
+
+    #[test]
+    fn parse_access_accepts_access_token() {
+        let m = mgr(60);
+        let t = m.issue("user-123", "a@b.com", "tenant-1", "").unwrap();
+        let c = m.parse_access(&t).unwrap();
+        assert_eq!(c.token_use, "access");
+    }
+
+    // jsonwebtoken's default Validation leeway is 60s, so a token expired by less
+    // than that still validates (tolerates clock skew) while one expired well
+    // beyond it does not. Confirms finding #4 is already handled in Rust.
+    #[test]
+    fn parse_tolerates_small_clock_skew() {
+        let within = mgr(-30);
+        let t = within.issue("user-123", "a@b.com", "", "").unwrap();
+        assert!(within.parse(&t).is_ok());
+
+        let beyond = mgr(-3600);
+        let t2 = beyond.issue("user-123", "a@b.com", "", "").unwrap();
+        assert!(beyond.parse(&t2).is_err());
     }
 }
