@@ -121,7 +121,10 @@ impl JwtManager {
         };
         let mut header = Header::new(Algorithm::RS256);
         header.kid = Some(self.active_kid.clone());
-        encode(&header, &claims, &self.enc).map_err(|_| JwtError::Encode)
+        encode(&header, &claims, &self.enc).map_err(|e| {
+            tracing::error!(error = %e, "jwt encode failed");
+            JwtError::Encode
+        })
     }
 
     /// Sign a short-lived token proving the password step of a 2FA login passed.
@@ -143,7 +146,10 @@ impl JwtManager {
         };
         let mut header = Header::new(Algorithm::RS256);
         header.kid = Some(self.active_kid.clone());
-        encode(&header, &claims, &self.enc).map_err(|_| JwtError::Encode)
+        encode(&header, &claims, &self.enc).map_err(|e| {
+            tracing::error!(error = %e, "jwt encode failed");
+            JwtError::Encode
+        })
     }
 
     /// Sign an OIDC ID token (RS256) for the given subject/audience with an
@@ -170,7 +176,10 @@ impl JwtManager {
         }
         let mut header = Header::new(Algorithm::RS256);
         header.kid = Some(self.active_kid.clone());
-        encode(&header, &claims, &self.enc).map_err(|_| JwtError::Encode)
+        encode(&header, &claims, &self.enc).map_err(|e| {
+            tracing::error!(error = %e, "jwt encode failed");
+            JwtError::Encode
+        })
     }
 
     pub fn parse(&self, token: &str) -> Result<Claims, JwtError> {
